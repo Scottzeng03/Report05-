@@ -1,14 +1,8 @@
-# for colab
-from google.colab import userdata
-from pyngrok import ngrok
-from flask_ngrok import run_with_ngrok
-def ngrok_start():
-    ngrok.set_auth_token(userdata.get('NGROK_AUTHTOKEN'))
-    ngrok.connect(5000)
-    run_with_ngrok(app)
-
+# -*- coding: utf-8 -*-
+import os
 from flask import Flask, request, abort
 
+# LINE Bot SDK
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
@@ -18,143 +12,115 @@ from linebot.v3.messaging import (
     TextMessage,
     TemplateMessage,
     ConfirmTemplate,
-    MessageAction,
-    CarouselTemplate,
-    CarouselColumn,
-    URIAction
+    MessageAction
 )
 
-# Gemini AI
+# Gemini SDK
 import google.generativeai as genai
-genai.configure(api_key=userdata.get("GOOGLE_API_KEY"))
-gemini_model = genai.GenerativeModel("gemini-2.0-flash")
 
-# OpenAI ChatGPT
+# ChatGPT SDK（你需安裝 openai）
 import openai
-openai.api_key = userdata.get("OPENAI_API_KEY")
+openai.api_key = os.getenv("OPENAI_API_KEY")  # [新增] ChatGPT 的 API 金鑰
 
+# 初始化 Flask 應用
 app = Flask(__name__)
 
-@app.route("/", methods=['GET'])
-def index():
-  return "Hello!"
+# 設定 LINE Messaging API
+configuration = Configuration(access_token=os.getenv('LINE_CHANNEL_ACCESS_TOKEN'))
+line_handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET'))
 
-configuration = Configuration(access_token=userdata.get('LINE_CHANNEL_ACCESS_TOKEN'))
-handler = WebhookHandler(userdata.get('LINE_CHANNEL_SECRET'))
+# 設定 Gemini API
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+gemini_model = genai.GenerativeModel("gemini-2.0-flash")
 
+# Gemini 問答函式
+def ask_gemini(question):
+    try:
+        response = gemini_model.generate_content(question)
+        return response.text.strip()
+    except Exception as e:
+        return "很抱歉，Gemini 回覆失敗。請稍後再試。"
+
+# [新增] ChatGPT 問答函式
+def ask_chatgpt(question):
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",  # 或 "gpt-3.5-turbo"
+            messages=[{"role": "user", "content": question}]
+        )
+        return response['choices'][0]['message']['content'].strip()
+    except Exception as e:
+        return "很抱歉，ChatGPT 回覆失敗。請稍後再試。"
+
+# [新增] 儲存使用者選擇的模型
+user_model_choice = {}
+
+# LINE Webhook 入口
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
     try:
-        handler.handle(body, signature)
+        line_handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
     return 'OK'
 
-# Gemini 回覆
-def ask_gemini(prompt):
-    try:
-        response = gemini_model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        return "Gemini 發生錯誤，請稍後再試。"
-
-# ChatGPT 回覆
-def ask_chatgpt(prompt):
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=200
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return "ChatGPT 發生錯誤，請稍後再試。"
-
-@handler.add(MessageEvent, message=TextMessageContent)
+# 處理訊息事件
+@line_handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    user_text = event.message.text.lower().strip()
+    user_id = event.source.user_id
+    user_message = event.message.text.strip().lower()
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
 
-        if user_text == "hi ai":
-            # 顯示選擇視窗
+        # [新增] 若使用者輸入 hi ai，顯示選擇視窗
+        if user_message == "hi ai":
             confirm_template = ConfirmTemplate(
-                text="請選擇想使用的 AI 模型",
+                text="請選擇你想使用的 AI 模型：",
                 actions=[
                     MessageAction(label="Gemini", text="使用 Gemini"),
                     MessageAction(label="ChatGPT", text="使用 ChatGPT")
                 ]
             )
             reply = TemplateMessage(
-                alt_text="選擇 AI 模型",
+                alt_text="請選擇 AI 模型",
                 template=confirm_template
             )
-
-        elif user_text == "使用 gemini":
-            ai_reply = ask_gemini("你好，我想和你聊天")
-            reply = TextMessage(text=ai_reply)
-
-        elif user_text == "使用 chatgpt":
-            ai_reply = ask_chatgpt("你好，我想和你聊天")
-            reply = TextMessage(text=ai_reply)
-
-        elif user_text == "confirm":
-            template = ConfirmTemplate(
-                text="你喜歡葬送的福利連嗎？",
-                actions=[
-                    MessageAction(label="是", text="我超愛"),
-                    MessageAction(label="否", text="其實我很愛，但我要傲嬌的說不")
-                ]
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[reply]
+                )
             )
-            reply = TemplateMessage(
-                alt_text="這是確認視窗",
-                template=template
-            )
+            return
 
-        elif user_text == "carousel":
-            Carousel_template = CarouselTemplate(
-                columns=[
-                    CarouselColumn(
-                        thumbnail_image_url='https://upload.wikimedia.org/wikipedia/zh/7/7d/Summer_Wars_poster.jpg',
-                        title='夏日大作戰',
-                        text='細田守執導的的日本科幻暨浪漫電影',
-                        actions=[
-                            URIAction(label='維基百科', uri='https://zh.wikipedia.org/zh-tw/%E5%A4%8F%E6%97%A5%E5%A4%A7%E4%BD%9C%E6%88%B0'),
-                            URIAction(label='Youtube', uri='https://www.youtube.com/watch?v=r8Ionf7_qBM'),
-                            MessageAction(label="投票", text="我投夏日大作戰一票")
-                        ]
-                    ),
-                    CarouselColumn(
-                        thumbnail_image_url='https://upload.wikimedia.org/wikipedia/zh/4/4f/Castle_of_Cagliostro_poster.png',
-                        title='魯邦三世 卡里奧斯特羅城',
-                        text='宮崎駿執導的日本動畫動作冒險喜劇電影',
-                        actions=[
-                            URIAction(label='維基百科', uri='https://zh.wikipedia.org/zh-tw/%E9%AD%AF%E9%82%A6%E4%B8%89%E4%B8%96_%E5%8D%A1%E9%87%8C%E5%A5%A7%E6%96%AF%E7%89%B9%E7%BE%85%E4%B9%8B%E5%9F%8E'),
-                            URIAction(label='Youtube', uri='https://www.youtube.com/watch?v=BO0iwApfDr8'),
-                            MessageAction(label="投票", text="我投魯邦三世 卡里奧斯特羅城一票")
-                        ]
-                    )
-                ]
-            )
-            reply = TemplateMessage(
-                alt_text='這是輪播視窗',
-                template=Carousel_template
-            )
-
+        # [新增] 使用者選擇模型
+        if user_message == "使用 gemini":
+            user_model_choice[user_id] = "gemini"
+            reply_text = "你已選擇 Gemini，請開始提問。"
+        elif user_message == "使用 chatgpt":
+            user_model_choice[user_id] = "chatgpt"
+            reply_text = "你已選擇 ChatGPT，請開始提問。"
+        # [新增] 若已選擇模型則回覆
+        elif user_id in user_model_choice:
+            model = user_model_choice[user_id]
+            if model == "gemini":
+                reply_text = ask_gemini(user_message)
+            else:
+                reply_text = ask_chatgpt(user_message)
         else:
-            reply = TextMessage(text="輸入 'hi ai' 試試看使用 AI 對話！")
+            reply_text = "請先輸入「hi ai」來選擇要對話的 AI 模型。"
 
+        # 回覆訊息
         line_bot_api.reply_message(
             ReplyMessageRequest(
                 reply_token=event.reply_token,
-                messages=[reply]
+                messages=[TextMessage(text=reply_text)]
             )
         )
 
-# 啟動伺服器
-ngrok_start()
+# 執行應用
 if __name__ == "__main__":
     app.run()
