@@ -18,9 +18,8 @@ from linebot.v3.messaging import (
 # Gemini SDK
 import google.generativeai as genai
 
-# ChatGPT SDK
+# ChatGPT (OpenAI) SDK
 import openai
-openai.api_key = os.getenv("OPENAI_API_KEY")  # 你要在環境變數設定這個
 
 # 初始化 Flask 應用
 app = Flask(__name__)
@@ -33,6 +32,9 @@ line_handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET'))
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 gemini_model = genai.GenerativeModel("gemini-2.0-flash")
 
+# 設定 OpenAI 客戶端（新版 SDK）
+openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 # 儲存使用者選擇的 AI 模型
 user_model_choice = {}
 
@@ -41,24 +43,26 @@ def ask_gemini(question):
     try:
         response = gemini_model.generate_content(question)
         return response.text.strip()
-    except:
-        return "Gemini 回覆失敗，請稍後再試。"
+    except Exception as e:
+        print(f"Gemini 錯誤: {e}")
+        return "❌ Gemini 回覆失敗，請稍後再試。"
 
 # ChatGPT 回答函式
 def ask_chatgpt(question):
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",  # 也可以換成 "gpt-4-turbo" 或 "gpt-3.5-turbo"
             messages=[{"role": "user", "content": question}]
         )
-        return response['choices'][0]['message']['content'].strip()
-    except:
-        return "ChatGPT 回覆失敗，請稍後再試。"
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"ChatGPT 錯誤: {e}")
+        return "❌ ChatGPT 回覆失敗，請稍後再試。"
 
 # Webhook 路由
 @app.route("/callback", methods=['POST'])
 def callback():
-    signature = request.headers['X-Line-Signature']
+    signature = request.headers.get('X-Line-Signature', '')
     body = request.get_data(as_text=True)
     try:
         line_handler.handle(body, signature)
@@ -111,7 +115,6 @@ def handle_message(event):
                 reply_text = ask_gemini(user_message)
             else:
                 reply_text = ask_chatgpt(user_message)
-
         else:
             # 尚未選擇模型
             reply_text = "請先輸入「hi ai」來選擇你想使用的 AI 模型。"
@@ -126,4 +129,4 @@ def handle_message(event):
 
 # 執行伺服器
 if __name__ == "__main__":
-    app.run()
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
