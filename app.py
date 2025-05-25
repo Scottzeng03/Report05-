@@ -20,7 +20,7 @@ import google.generativeai as genai
 
 # ChatGPT SDK
 import openai
-openai.api_key = os.getenv("Scottzeng03")  # 你要在環境變數設定這個
+openai.api_key = os.getenv("OPENAI_API_KEY")  # 你要在環境變數設定這個
 
 # 初始化 Flask 應用
 app = Flask(__name__)
