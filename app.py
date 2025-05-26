@@ -49,7 +49,7 @@ def ask_gemini(question):
         return response.text.strip()
     except Exception as e:
         print(f"Gemini 錯誤: {e}")
-        return "❌ 由於 ChatGPT 開發金鑰需要使用者付費，因此無法回覆，請付費後再試。"
+        return "❌ Gemini 回覆失敗，請稍後再試。"
 
 # ChatGPT 回答函式
 def ask_chatgpt(question):
@@ -61,7 +61,7 @@ def ask_chatgpt(question):
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"ChatGPT 錯誤: {e}")
-        return "❌ ChatGPT 回覆失敗，請稍後再試。"
+        return "❌ 由於 ChatGPT 開發金鑰需要使用者付費，因此無法回覆，請付費後再試。"
 
 # Webhook 路由
 @app.route("/callback", methods=['POST'])
