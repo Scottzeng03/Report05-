@@ -12,7 +12,10 @@ from linebot.v3.messaging import (
     TextMessage,
     TemplateMessage,
     ConfirmTemplate,
-    MessageAction
+    MessageAction,
+    CarouselTemplate,
+    CarouselColumn,
+    URIAction
 )
 
 # Gemini SDK
@@ -35,10 +38,8 @@ gemini_model = genai.GenerativeModel("gemini-2.0-flash")
 # 設定 OpenAI 客戶端（新版 SDK）
 openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# 儲存使用者選擇的 AI 模型
+# 儲存使用者選擇的 AI 模型和投票結果
 user_model_choice = {}
-
-# 儲存投票數
 vote_counts = {"gemini": 0, "chatgpt": 0}
 
 # Gemini 回答函式
@@ -48,7 +49,7 @@ def ask_gemini(question):
         return response.text.strip()
     except Exception as e:
         print(f"Gemini 錯誤: {e}")
-        return "❌ Gemini 回覆失敗，請稍後再試。"
+        return "❌ 由於 ChatGPT 開發金鑰需要使用者付費，因此無法回覆，請付費後再試。"
 
 # ChatGPT 回答函式
 def ask_chatgpt(question):
@@ -60,7 +61,7 @@ def ask_chatgpt(question):
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"ChatGPT 錯誤: {e}")
-        return "❌ 由於 ChatGPT 開發金鑰需要使用者付費，因此無法回覆，請付費後再試。"
+        return "❌ ChatGPT 回覆失敗，請稍後再試。"
 
 # Webhook 路由
 @app.route("/callback", methods=['POST'])
@@ -82,7 +83,7 @@ def handle_message(event):
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
 
-        # 使用者輸入 hi ai → 顯示選擇 AI 模型的選單
+        # hi ai → 顯示選擇 AI 模型選單
         if user_message == "hi ai":
             confirm_template = ConfirmTemplate(
                 text="請選擇你想要的 AI 模型：",
@@ -105,80 +106,49 @@ def handle_message(event):
 
         # 顯示投票輪播
         elif user_message == "vote":
-            carousel_template = {
-                "type": "carousel",
-                "columns": [
-                    {
-                        "thumbnailImageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Google_Gemini_logo.svg/330px-Google_Gemini_logo.svg.png",
-                        "title": "Gemini",
-                        "text": "是由 Google 開發的生成式人工智慧聊天機器人。",
-                        "actions": [
-                            {
-                                "type": "uri",
-                                "label": "維基百科",
-                                "uri": "https://zh.wikipedia.org/zh-tw/Gemini_(%E8%81%8A%E5%A4%A9%E6%A9%9F%E5%99%A8%E4%BA%BA)"
-                            },
-                            {
-                                "type": "uri",
-                                "label": "Youtube",
-                                "uri": "https://www.youtube.com/watch?v=yOpfYMBocYI"
-                            },
-                            {
-                                "type": "message",
-                                "label": "投票",
-                                "text": "我投Gemini一票"
-                            }
+            carousel_template = CarouselTemplate(
+                columns=[
+                    CarouselColumn(
+                        thumbnail_image_url='https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Google_Gemini_logo.svg/330px-Google_Gemini_logo.svg.png',
+                        title='Gemini',
+                        text='Google 開發的生成式 AI 聊天機器人。',
+                        actions=[
+                            URIAction(label='維基百科', uri='https://zh.wikipedia.org/zh-tw/Gemini_(%E8%81%8A%E5%A4%A9%E6%A9%9F%E5%99%A8%E4%BA%BA)'),
+                            URIAction(label='YouTube', uri='https://www.youtube.com/watch?v=yOpfYMBocYI'),
+                            MessageAction(label='投票', text='我投Gemini一票')
                         ]
-                    },
-                    {
-                        "thumbnailImageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/ChatGPT-Logo.svg/330px-ChatGPT-Logo.svg.png",
-                        "title": "ChatGPT",
-                        "text": "由 OpenAI 開發的人工智慧聊天機器人。",
-                        "actions": [
-                            {
-                                "type": "uri",
-                                "label": "維基百科",
-                                "uri": "https://zh.wikipedia.org/zh-tw/ChatGPT"
-                            },
-                            {
-                                "type": "uri",
-                                "label": "Youtube",
-                                "uri": "https://www.youtube.com/watch?v=WizoCwjEKsg"
-                            },
-                            {
-                                "type": "message",
-                                "label": "投票",
-                                "text": "我投ChatGPT一票"
-                            }
+                    ),
+                    CarouselColumn(
+                        thumbnail_image_url='https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/ChatGPT-Logo.svg/330px-ChatGPT-Logo.svg.png',
+                        title='ChatGPT',
+                        text='OpenAI 開發的生成式 AI 聊天機器人。',
+                        actions=[
+                            URIAction(label='維基百科', uri='https://zh.wikipedia.org/zh-tw/ChatGPT'),
+                            URIAction(label='YouTube', uri='https://www.youtube.com/watch?v=WizoCwjEKsg'),
+                            MessageAction(label='投票', text='我投ChatGPT一票')
                         ]
-                    }
+                    )
                 ]
-            }
+            )
+            template_message = TemplateMessage(
+                alt_text='AI 模型投票輪播',
+                template=carousel_template
+            )
             line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[
-                        {
-                            "type": "template",
-                            "altText": "這是投票輪播",
-                            "template": carousel_template
-                        }
-                    ]
+                    messages=[template_message]
                 )
             )
             return
 
-        # 記錄投票
+        # 記錄使用者投票
         elif user_message == "我投gemini一票":
             vote_counts["gemini"] += 1
-            reply_text = f"✅ 已為 Gemini 計票！目前 Gemini：{vote_counts['gemini']} 票，ChatGPT：{vote_counts['chatgpt']} 票。"
+            reply_text = f"✅ 感謝投票！目前 Gemini 得票數：{vote_counts['gemini']}"
         elif user_message == "我投chatgpt一票":
             vote_counts["chatgpt"] += 1
-            reply_text = f"✅ 已為 ChatGPT 計票！目前 Gemini：{vote_counts['gemini']} 票，ChatGPT：{vote_counts['chatgpt']} 票。"
-        elif user_message == "reset vote":
-            vote_counts["gemini"] = 0
-            vote_counts["chatgpt"] = 0
-            reply_text = "✅ 投票已重置。"
+            reply_text = f"✅ 感謝投票！目前 ChatGPT 得票數：{vote_counts['chatgpt']}"
 
         # 記錄使用者選擇的模型
         elif user_message == "使用 gemini":
@@ -196,8 +166,7 @@ def handle_message(event):
             else:
                 reply_text = ask_chatgpt(user_message)
         else:
-            # 尚未選擇模型
-            reply_text = "請先輸入「hi ai」來選擇你想使用的 AI 模型，或輸入「vote」參與投票。"
+            reply_text = "請先輸入「hi ai」來選擇你想使用的 AI 模型。"
 
         # 傳送回覆
         line_bot_api.reply_message(
